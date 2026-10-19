@@ -1,0 +1,74 @@
+{
+  "name": "cursor-usage-plugin",
+  "displayName": "Cursor Usage",
+  "description": "Status bar indicator for Cursor plan usage in the current billing period.",
+  "version": "0.1.0",
+  "publisher": "lazzar20",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "extensionKind": ["ui"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "cursorUsage.refresh",
+        "title": "Cursor Usage: Refresh"
+      },
+      {
+        "command": "cursorUsage.showDetails",
+        "title": "Cursor Usage: Show Details"
+      }
+    ],
+    "configuration": {
+      "title": "Cursor Usage",
+      "properties": {
+        "cursorUsage.pollIntervalSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 60,
+          "description": "How often to refresh usage, in seconds."
+        },
+        "cursorUsage.warningPercent": {
+          "type": "number",
+          "default": 80,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Status bar warning background when usage reaches this percent."
+        },
+        "cursorUsage.criticalPercent": {
+          "type": "number",
+          "default": 95,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Status bar critical background when usage reaches this percent."
+        },
+        "cursorUsage.barSegments": {
+          "type": "number",
+          "default": 8,
+          "minimum": 4,
+          "maximum": 40,
+          "description": "Number of characters in the status bar usage meter."
+        },
+        "cursorUsage.stateDbPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute path to Cursor state.vscdb. Empty uses the platform default."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.8.0"
+  }
+}
