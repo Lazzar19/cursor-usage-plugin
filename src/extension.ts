@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { readAccessToken, resolveStateDbPath } from "./auth";
 import { renderBar } from "./bar";
-import { formatPercent } from "./usage";
+import { fetchCurrentPeriodUsage, formatPercent } from "./usage";
 
 const VIEW_NAME = "Cursor Usage";
 
@@ -24,7 +24,20 @@ export function activate(context: vscode.ExtensionContext): void {
     try {
       const token = await readAccessToken(dbPath);
       output.appendLine(`access token: ok (${token.length} chars)`);
-      void vscode.window.showInformationMessage("Cursor access token found.");
+      const usage = await fetchCurrentPeriodUsage(token);
+      const percent = formatPercent(usage.planUsage.totalPercentUsed);
+      output.appendLine(`usage: ${percent}`);
+      output.appendLine(`included spend cents: ${usage.planUsage.includedSpendCents}`);
+      output.appendLine(`remaining cents: ${usage.planUsage.remainingCents ?? "—"}`);
+      output.appendLine(`limit cents: ${usage.planUsage.limitCents}`);
+      output.appendLine(`cycle ms: ${usage.billingCycleStartMs ?? "—"} .. ${usage.billingCycleEndMs ?? "—"}`);
+      if (usage.spendLimitUsage?.totalSpendCents != null) {
+        output.appendLine(`on-demand spend cents: ${usage.spendLimitUsage.totalSpendCents}`);
+      }
+      if (usage.displayMessage) {
+        output.appendLine(usage.displayMessage);
+      }
+      void vscode.window.showInformationMessage(`Cursor usage ${percent}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not read the Cursor access token.";
       output.appendLine(message);
