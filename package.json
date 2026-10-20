@@ -8,10 +8,16 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "extensionKind": ["ui"],
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
   "main": "./out/extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
       {
@@ -70,5 +76,8 @@
     "@types/node": "^22.15.0",
     "@types/vscode": "^1.85.0",
     "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "sql.js": "^1.15.1"
   }
 }
