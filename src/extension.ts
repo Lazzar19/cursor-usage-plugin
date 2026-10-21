@@ -1,19 +1,9 @@
 import * as vscode from "vscode";
 import { readAccessToken, resolveStateDbPath } from "./auth";
-import { renderBar } from "./bar";
-import { describeFailure, failureMessage, pollIntervalMs } from "./status";
-import {
-  fetchCurrentPeriodUsage,
-  formatPercent,
-  formatUsageDetails,
-  UsageAbortedError,
-  usagePercent,
-  type CurrentPeriodUsage,
-} from "./usage";
+import { describeFailure, pollIntervalMs, presentFailure, presentSpin, presentUsage, type UsageView } from "./status";
+import { fetchCurrentPeriodUsage, UsageAbortedError, type CurrentPeriodUsage } from "./usage";
 
 const VIEW_NAME = "Cursor Usage";
-const FILL_GLYPH = "▓";
-const EMPTY_GLYPH = "░";
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel(VIEW_NAME);
@@ -24,8 +14,8 @@ export function activate(context: vscode.ExtensionContext): void {
   item.tooltip = "Cursor usage is not loaded yet.";
   item.show();
 
-  let latestDetails: string | undefined;
   let lastUsage: CurrentPeriodUsage | undefined;
+  let lastView: UsageView | undefined;
   let inflight: AbortController | undefined;
 
   const refresh = async (): Promise<void> => {
@@ -38,7 +28,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const warningPercent = config.get<number>("warningPercent", 80);
     const criticalPercent = config.get<number>("criticalPercent", 95);
     const dbPath = resolveStateDbPath(config.get<string>("stateDbPath"));
-    item.text = lastUsage ? spinningText(lastUsage, segments) : "$(sync~spin) Cursor";
+    item.text = presentSpin(lastUsage, segments);
 
     try {
       const token = await readAccessToken(dbPath);
@@ -50,30 +40,20 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       lastUsage = usage;
-      latestDetails = formatUsageDetails(usage);
-      renderUsage(item, usage, segments, warningPercent, criticalPercent);
-      writeDetails(output, latestDetails);
+      lastView = presentUsage(usage, segments, warningPercent, criticalPercent);
+      applyView(item, lastView);
+      writeOutput(output, lastView.output);
     } catch (error) {
       if (current.signal.aborted || error instanceof UsageAbortedError) {
         return;
       }
-      const failure = describeFailure(error);
-      const message = failureMessage(error);
-      if (failure.keepLastSuccess && lastUsage) {
-        renderUsage(item, lastUsage, segments, warningPercent, criticalPercent);
-        item.text = `${item.text} · ${failure.label.replace(/^Cursor:\s*/, "")}`;
-        item.tooltip = message;
-      } else {
-        item.text = failure.label;
-        item.tooltip = message;
-        item.backgroundColor = undefined;
+      const view = presentFailure(error, lastView);
+      if (!describeFailure(error).keepLastSuccess) {
+        lastUsage = undefined;
+        lastView = undefined;
       }
-      output.clear();
-      output.appendLine(failure.label);
-      output.appendLine(message);
-      if (failure.keepLastSuccess && latestDetails) {
-        output.appendLine(latestDetails);
-      }
+      applyView(item, view);
+      writeOutput(output, view.output);
     }
   };
 
@@ -95,46 +75,25 @@ export function activate(context: vscode.ExtensionContext): void {
   void refresh();
 }
 
-function spinningText(usage: CurrentPeriodUsage, segments: number): string {
-  return statusText("$(sync~spin)", usage, segments);
+function applyView(item: vscode.StatusBarItem, view: UsageView): void {
+  item.text = view.text;
+  item.tooltip = view.tooltip;
+  item.backgroundColor = backgroundFor(view.level);
 }
 
-function renderUsage(
-  item: vscode.StatusBarItem,
-  usage: CurrentPeriodUsage,
-  segments: number,
-  warningPercent: number,
-  criticalPercent: number,
-): void {
-  const percent = usagePercent(usage.planUsage);
-  item.text = statusText("$(pulse)", usage, segments);
-  item.tooltip = formatUsageDetails(usage);
-  item.backgroundColor = backgroundFor(percent, warningPercent, criticalPercent);
-}
-
-function statusText(icon: string, usage: CurrentPeriodUsage, segments: number): string {
-  const percent = usagePercent(usage.planUsage);
-  const bar = renderBar(percent, { segments, fillGlyph: FILL_GLYPH, emptyGlyph: EMPTY_GLYPH });
-  return `${icon} Cursor ${bar} ${formatPercent(percent)}`;
-}
-
-function backgroundFor(
-  percent: number,
-  warningPercent: number,
-  criticalPercent: number,
-): vscode.ThemeColor | undefined {
-  if (percent >= criticalPercent) {
+function backgroundFor(level: UsageView["level"]): vscode.ThemeColor | undefined {
+  if (level === "critical") {
     return new vscode.ThemeColor("statusBarItem.errorBackground");
   }
-  if (percent >= warningPercent) {
+  if (level === "warning") {
     return new vscode.ThemeColor("statusBarItem.warningBackground");
   }
   return undefined;
 }
 
-function writeDetails(output: vscode.OutputChannel, details: string): void {
+function writeOutput(output: vscode.OutputChannel, text: string): void {
   output.clear();
-  output.appendLine(details);
+  output.appendLine(text);
 }
 
 export function deactivate(): void {}

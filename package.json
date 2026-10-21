@@ -70,7 +70,8 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node test/read-token.mjs && node test/parse-usage.mjs && node test/status.mjs && node test/view.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
