@@ -30,6 +30,7 @@ export interface CurrentPeriodUsage {
 export interface FetchUsageOptions {
   fetch?: typeof fetch;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export class SessionExpiredError extends Error {
@@ -50,6 +51,13 @@ export class UsageUnavailableError extends Error {
   constructor(message = "Cursor usage is unavailable.") {
     super(message);
     this.name = "UsageUnavailableError";
+  }
+}
+
+export class UsageAbortedError extends Error {
+  constructor() {
+    super("Cursor usage request was cancelled.");
+    this.name = "UsageAbortedError";
   }
 }
 
@@ -102,6 +110,7 @@ export async function fetchCurrentPeriodUsage(
   options: FetchUsageOptions = {},
 ): Promise<CurrentPeriodUsage> {
   const fetchImpl = options.fetch ?? fetch;
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? USAGE_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetchImpl(CURRENT_PERIOD_USAGE_URL, {
@@ -112,10 +121,13 @@ export async function fetchCurrentPeriodUsage(
         "Connect-Protocol-Version": "1",
       },
       body: "{}",
-      signal: AbortSignal.timeout(options.timeoutMs ?? USAGE_TIMEOUT_MS),
+      signal: combineSignals(timeout, options.signal),
     });
   } catch (error) {
-    if (isTimeout(error)) {
+    if (options.signal?.aborted) {
+      throw new UsageAbortedError();
+    }
+    if (timeout.aborted || isTimeout(error)) {
       throw new UsageUnavailableError("Cursor usage request timed out.");
     }
     throw new UsageUnavailableError("Cursor usage request failed.");
@@ -132,6 +144,9 @@ export async function fetchCurrentPeriodUsage(
   try {
     body = await response.json();
   } catch {
+    if (options.signal?.aborted) {
+      throw new UsageAbortedError();
+    }
     throw new UsageResponseError("Cursor usage response was not valid JSON.");
   }
   return parseCurrentPeriodUsage(body);
@@ -224,6 +239,25 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     return value as Record<string, unknown>;
   }
   return undefined;
+}
+
+function combineSignals(timeout: AbortSignal, parent?: AbortSignal): AbortSignal {
+  if (!parent) {
+    return timeout;
+  }
+  const controller = new AbortController();
+  const abort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort();
+    }
+  };
+  if (parent.aborted || timeout.aborted) {
+    abort();
+    return controller.signal;
+  }
+  parent.addEventListener("abort", abort, { once: true });
+  timeout.addEventListener("abort", abort, { once: true });
+  return controller.signal;
 }
 
 function isTimeout(error: unknown): boolean {

@@ -8,6 +8,7 @@ const {
   UsageResponseError,
   SessionExpiredError,
   UsageUnavailableError,
+  UsageAbortedError,
 } = createRequire(import.meta.url)("../out/usage.js");
 
 let failed = 0;
@@ -162,6 +163,21 @@ const fetched = await fetchCurrentPeriodUsage("token", {
   },
 });
 assert(fetched.planUsage.totalPercentUsed === 50, "fetch maps a successful body");
+
+const cancelled = new AbortController();
+cancelled.abort();
+try {
+  await fetchCurrentPeriodUsage("token", {
+    signal: cancelled.signal,
+    fetch: async (_url, init) => {
+      init.signal.throwIfAborted();
+      return jsonResponse(200, {});
+    },
+  });
+  assert(false, "aborted request should fail");
+} catch (error) {
+  assert(error instanceof UsageAbortedError, "aborted request raises UsageAbortedError");
+}
 
 const exhausted = {
   totalSpendCents: 5875,

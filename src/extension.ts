@@ -1,7 +1,15 @@
 import * as vscode from "vscode";
 import { readAccessToken, resolveStateDbPath } from "./auth";
 import { renderBar } from "./bar";
-import { fetchCurrentPeriodUsage, formatPercent, formatUsageDetails, usagePercent, type CurrentPeriodUsage } from "./usage";
+import { describeFailure, failureMessage, pollIntervalMs } from "./status";
+import {
+  fetchCurrentPeriodUsage,
+  formatPercent,
+  formatUsageDetails,
+  UsageAbortedError,
+  usagePercent,
+  type CurrentPeriodUsage,
+} from "./usage";
 
 const VIEW_NAME = "Cursor Usage";
 const FILL_GLYPH = "▓";
@@ -17,35 +25,78 @@ export function activate(context: vscode.ExtensionContext): void {
   item.show();
 
   let latestDetails: string | undefined;
+  let lastUsage: CurrentPeriodUsage | undefined;
+  let inflight: AbortController | undefined;
 
-  const refresh = vscode.commands.registerCommand("cursorUsage.refresh", async () => {
+  const refresh = async (): Promise<void> => {
+    inflight?.abort();
+    const current = new AbortController();
+    inflight = current;
+
     const config = vscode.workspace.getConfiguration("cursorUsage");
     const segments = config.get<number>("barSegments", 8);
     const warningPercent = config.get<number>("warningPercent", 80);
     const criticalPercent = config.get<number>("criticalPercent", 95);
     const dbPath = resolveStateDbPath(config.get<string>("stateDbPath"));
+    item.text = lastUsage ? spinningText(lastUsage, segments) : "$(sync~spin) Cursor";
+
     try {
       const token = await readAccessToken(dbPath);
-      const usage = await fetchCurrentPeriodUsage(token);
+      if (current.signal.aborted) {
+        return;
+      }
+      const usage = await fetchCurrentPeriodUsage(token, { signal: current.signal });
+      if (current.signal.aborted) {
+        return;
+      }
+      lastUsage = usage;
       latestDetails = formatUsageDetails(usage);
       renderUsage(item, usage, segments, warningPercent, criticalPercent);
       writeDetails(output, latestDetails);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not read Cursor usage.";
+      if (current.signal.aborted || error instanceof UsageAbortedError) {
+        return;
+      }
+      const failure = describeFailure(error);
+      const message = failureMessage(error);
+      if (failure.keepLastSuccess && lastUsage) {
+        renderUsage(item, lastUsage, segments, warningPercent, criticalPercent);
+        item.text = `${item.text} · ${failure.label.replace(/^Cursor:\s*/, "")}`;
+        item.tooltip = message;
+      } else {
+        item.text = failure.label;
+        item.tooltip = message;
+        item.backgroundColor = undefined;
+      }
       output.clear();
+      output.appendLine(failure.label);
       output.appendLine(message);
-      void vscode.window.showErrorMessage(message);
+      if (failure.keepLastSuccess && latestDetails) {
+        output.appendLine(latestDetails);
+      }
     }
-  });
+  };
 
+  const refreshCommand = vscode.commands.registerCommand("cursorUsage.refresh", () => refresh());
   const showDetails = vscode.commands.registerCommand("cursorUsage.showDetails", () => {
-    if (latestDetails) {
-      writeDetails(output, latestDetails);
-    }
     output.show(true);
   });
+  const pollMs = pollIntervalMs(vscode.workspace.getConfiguration("cursorUsage").get<number>("pollIntervalSeconds"));
+  const timer = setInterval(() => {
+    void refresh();
+  }, pollMs);
 
-  context.subscriptions.push(output, item, refresh, showDetails);
+  context.subscriptions.push(output, item, refreshCommand, showDetails, {
+    dispose: () => {
+      clearInterval(timer);
+      inflight?.abort();
+    },
+  });
+  void refresh();
+}
+
+function spinningText(usage: CurrentPeriodUsage, segments: number): string {
+  return statusText("$(sync~spin)", usage, segments);
 }
 
 function renderUsage(
@@ -56,10 +107,15 @@ function renderUsage(
   criticalPercent: number,
 ): void {
   const percent = usagePercent(usage.planUsage);
-  const bar = renderBar(percent, { segments, fillGlyph: FILL_GLYPH, emptyGlyph: EMPTY_GLYPH });
-  item.text = `$(pulse) Cursor ${bar} ${formatPercent(percent)}`;
+  item.text = statusText("$(pulse)", usage, segments);
   item.tooltip = formatUsageDetails(usage);
   item.backgroundColor = backgroundFor(percent, warningPercent, criticalPercent);
+}
+
+function statusText(icon: string, usage: CurrentPeriodUsage, segments: number): string {
+  const percent = usagePercent(usage.planUsage);
+  const bar = renderBar(percent, { segments, fillGlyph: FILL_GLYPH, emptyGlyph: EMPTY_GLYPH });
+  return `${icon} Cursor ${bar} ${formatPercent(percent)}`;
 }
 
 function backgroundFor(
