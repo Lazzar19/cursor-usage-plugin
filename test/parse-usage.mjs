@@ -3,6 +3,8 @@ import { createRequire } from "node:module";
 const {
   parseCurrentPeriodUsage,
   fetchCurrentPeriodUsage,
+  usagePercent,
+  formatUsageDetails,
   UsageResponseError,
   SessionExpiredError,
   UsageUnavailableError,
@@ -160,6 +162,35 @@ const fetched = await fetchCurrentPeriodUsage("token", {
   },
 });
 assert(fetched.planUsage.totalPercentUsed === 50, "fetch maps a successful body");
+
+const exhausted = {
+  totalSpendCents: 5875,
+  includedSpendCents: 2000,
+  remainingCents: 0,
+  limitCents: 2000,
+  totalPercentUsed: 12.7,
+};
+assert(usagePercent(exhausted) === 100, "bar uses included spend against the limit");
+assert(usagePercent({ ...exhausted, includedSpendCents: 1000, limitCents: 4000 }) === 25, "partial included spend");
+assert(
+  usagePercent({ ...exhausted, limitCents: 0, totalPercentUsed: 12.7 }) === 12.7,
+  "falls back to totalPercentUsed when the limit is zero",
+);
+
+const details = formatUsageDetails({
+  billingCycleStartMs: Date.parse("2026-10-11T00:00:00.000Z"),
+  billingCycleEndMs: Date.parse("2026-11-11T00:00:00.000Z"),
+  planUsage: exhausted,
+  spendLimitUsage: { totalSpendCents: null, individualLimitCents: null, individualUsedCents: null, individualRemainingCents: null, limitType: "user" },
+  displayMessage: "You've hit your usage limit",
+});
+assert(details.includes("You've hit your usage limit"), "details include the API message");
+assert(details.includes("Included $20.00"), "details show included dollars");
+assert(details.includes("Remaining $0.00"), "details show remaining dollars");
+assert(details.includes("Limit $20.00"), "details show the limit in dollars");
+assert(!details.includes("On-demand"), "details omit on-demand when spend is absent");
+assert(details.includes("Cycle 2026-10-11 – 2026-11-11"), "details show the billing cycle");
+assert(!details.includes("eyJ"), "details do not include a token");
 
 if (failed > 0) {
   process.exitCode = 1;

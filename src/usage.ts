@@ -60,6 +60,43 @@ export function formatPercent(percent: number): string {
   return `${Math.round(Math.min(100, Math.max(0, percent)))}%`;
 }
 
+export function usagePercent(plan: PlanUsage): number {
+  if (plan.limitCents > 0) {
+    return (plan.includedSpendCents / plan.limitCents) * 100;
+  }
+  return plan.totalPercentUsed;
+}
+
+export function formatDollars(cents: number): string {
+  const amount = Math.abs(cents) / 100;
+  const sign = cents < 0 ? "-" : "";
+  return `${sign}$${amount.toFixed(2)}`;
+}
+
+export function formatUsageDetails(usage: CurrentPeriodUsage): string {
+  const lines: string[] = [];
+  if (usage.displayMessage) {
+    lines.push(usage.displayMessage);
+  }
+  lines.push(`Included ${formatDollars(usage.planUsage.includedSpendCents)}`);
+  lines.push(
+    `Remaining ${usage.planUsage.remainingCents === null ? "—" : formatDollars(usage.planUsage.remainingCents)}`,
+  );
+  lines.push(`Limit ${formatDollars(usage.planUsage.limitCents)}`);
+  if (usage.spendLimitUsage?.totalSpendCents != null) {
+    lines.push(`On-demand ${formatDollars(usage.spendLimitUsage.totalSpendCents)}`);
+  }
+  lines.push(`Cycle ${formatCycleDate(usage.billingCycleStartMs)} – ${formatCycleDate(usage.billingCycleEndMs)}`);
+  return lines.join("\n");
+}
+
+function formatCycleDate(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms)) {
+    return "—";
+  }
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 export async function fetchCurrentPeriodUsage(
   accessToken: string,
   options: FetchUsageOptions = {},

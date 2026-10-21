@@ -1,9 +1,11 @@
 import * as vscode from "vscode";
 import { readAccessToken, resolveStateDbPath } from "./auth";
 import { renderBar } from "./bar";
-import { fetchCurrentPeriodUsage, formatPercent } from "./usage";
+import { fetchCurrentPeriodUsage, formatPercent, formatUsageDetails, usagePercent, type CurrentPeriodUsage } from "./usage";
 
 const VIEW_NAME = "Cursor Usage";
+const FILL_GLYPH = "▓";
+const EMPTY_GLYPH = "░";
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel(VIEW_NAME);
@@ -14,42 +16,69 @@ export function activate(context: vscode.ExtensionContext): void {
   item.tooltip = "Cursor usage is not loaded yet.";
   item.show();
 
+  let latestDetails: string | undefined;
+
   const refresh = vscode.commands.registerCommand("cursorUsage.refresh", async () => {
     const config = vscode.workspace.getConfiguration("cursorUsage");
     const segments = config.get<number>("barSegments", 8);
+    const warningPercent = config.get<number>("warningPercent", 80);
+    const criticalPercent = config.get<number>("criticalPercent", 95);
     const dbPath = resolveStateDbPath(config.get<string>("stateDbPath"));
-    output.clear();
-    output.appendLine(`state.vscdb: ${dbPath}`);
-    output.appendLine(`meter preview: ${renderBar(0, { segments, fillGlyph: "▓", emptyGlyph: "░" })} ${formatPercent(0)}`);
     try {
       const token = await readAccessToken(dbPath);
-      output.appendLine(`access token: ok (${token.length} chars)`);
       const usage = await fetchCurrentPeriodUsage(token);
-      const percent = formatPercent(usage.planUsage.totalPercentUsed);
-      output.appendLine(`usage: ${percent}`);
-      output.appendLine(`included spend cents: ${usage.planUsage.includedSpendCents}`);
-      output.appendLine(`remaining cents: ${usage.planUsage.remainingCents ?? "—"}`);
-      output.appendLine(`limit cents: ${usage.planUsage.limitCents}`);
-      output.appendLine(`cycle ms: ${usage.billingCycleStartMs ?? "—"} .. ${usage.billingCycleEndMs ?? "—"}`);
-      if (usage.spendLimitUsage?.totalSpendCents != null) {
-        output.appendLine(`on-demand spend cents: ${usage.spendLimitUsage.totalSpendCents}`);
-      }
-      if (usage.displayMessage) {
-        output.appendLine(usage.displayMessage);
-      }
-      void vscode.window.showInformationMessage(`Cursor usage ${percent}.`);
+      latestDetails = formatUsageDetails(usage);
+      renderUsage(item, usage, segments, warningPercent, criticalPercent);
+      writeDetails(output, latestDetails);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not read the Cursor access token.";
+      const message = error instanceof Error ? error.message : "Could not read Cursor usage.";
+      output.clear();
       output.appendLine(message);
       void vscode.window.showErrorMessage(message);
     }
   });
 
   const showDetails = vscode.commands.registerCommand("cursorUsage.showDetails", () => {
+    if (latestDetails) {
+      writeDetails(output, latestDetails);
+    }
     output.show(true);
   });
 
   context.subscriptions.push(output, item, refresh, showDetails);
+}
+
+function renderUsage(
+  item: vscode.StatusBarItem,
+  usage: CurrentPeriodUsage,
+  segments: number,
+  warningPercent: number,
+  criticalPercent: number,
+): void {
+  const percent = usagePercent(usage.planUsage);
+  const bar = renderBar(percent, { segments, fillGlyph: FILL_GLYPH, emptyGlyph: EMPTY_GLYPH });
+  item.text = `$(pulse) Cursor ${bar} ${formatPercent(percent)}`;
+  item.tooltip = formatUsageDetails(usage);
+  item.backgroundColor = backgroundFor(percent, warningPercent, criticalPercent);
+}
+
+function backgroundFor(
+  percent: number,
+  warningPercent: number,
+  criticalPercent: number,
+): vscode.ThemeColor | undefined {
+  if (percent >= criticalPercent) {
+    return new vscode.ThemeColor("statusBarItem.errorBackground");
+  }
+  if (percent >= warningPercent) {
+    return new vscode.ThemeColor("statusBarItem.warningBackground");
+  }
+  return undefined;
+}
+
+function writeDetails(output: vscode.OutputChannel, details: string): void {
+  output.clear();
+  output.appendLine(details);
 }
 
 export function deactivate(): void {}
