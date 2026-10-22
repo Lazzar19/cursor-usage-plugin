@@ -9,6 +9,8 @@ export interface PlanUsage {
   remainingCents: number | null;
   limitCents: number;
   totalPercentUsed: number;
+  autoPercentUsed: number | null;
+  apiPercentUsed: number | null;
 }
 
 export interface SpendLimitUsage {
@@ -25,6 +27,8 @@ export interface CurrentPeriodUsage {
   planUsage: PlanUsage;
   spendLimitUsage: SpendLimitUsage | null;
   displayMessage: string | null;
+  cursorModelsMessage: string | null;
+  otherModelsMessage: string | null;
 }
 
 export interface FetchUsageOptions {
@@ -86,6 +90,14 @@ export function formatUsageDetails(usage: CurrentPeriodUsage): string {
   if (usage.displayMessage) {
     lines.push(usage.displayMessage);
   }
+  lines.push(`Cursor models ${formatPercentOrDash(usage.planUsage.autoPercentUsed)}`);
+  if (usage.cursorModelsMessage) {
+    lines.push(usage.cursorModelsMessage);
+  }
+  lines.push(`Other models ${formatPercentOrDash(usage.planUsage.apiPercentUsed)}`);
+  if (usage.otherModelsMessage) {
+    lines.push(usage.otherModelsMessage);
+  }
   lines.push(`Included ${formatDollars(usage.planUsage.includedSpendCents)}`);
   lines.push(
     `Remaining ${usage.planUsage.remainingCents === null ? "—" : formatDollars(usage.planUsage.remainingCents)}`,
@@ -96,6 +108,13 @@ export function formatUsageDetails(usage: CurrentPeriodUsage): string {
   }
   lines.push(`Cycle ${formatCycleDate(usage.billingCycleStartMs)} – ${formatCycleDate(usage.billingCycleEndMs)}`);
   return lines.join("\n");
+}
+
+function formatPercentOrDash(percent: number | null): string {
+  if (percent === null) {
+    return "—";
+  }
+  return formatPercent(percent);
 }
 
 function formatCycleDate(ms: number | null): string {
@@ -181,6 +200,8 @@ export function parseCurrentPeriodUsage(body: unknown): CurrentPeriodUsage {
   }
 
   const displayMessage = pick(root, "displayMessage", "display_message");
+  const cursorModelsMessage = pick(root, "autoModelSelectedDisplayMessage", "auto_model_selected_display_message");
+  const otherModelsMessage = pick(root, "namedModelSelectedDisplayMessage", "named_model_selected_display_message");
   const includedSpendCents = requireNumber(planRecord, ["includedSpend", "included_spend"], "planUsage.includedSpend");
   const limitCents = requireNumber(planRecord, ["limit"], "planUsage.limit");
   const remainingCents = optionalNumber(planRecord, ["remaining"]) ?? limitCents - includedSpendCents;
@@ -194,9 +215,13 @@ export function parseCurrentPeriodUsage(body: unknown): CurrentPeriodUsage {
       remainingCents,
       limitCents,
       totalPercentUsed: requireNumber(planRecord, ["totalPercentUsed", "total_percent_used"], "planUsage.totalPercentUsed"),
+      autoPercentUsed: optionalNumber(planRecord, ["autoPercentUsed", "auto_percent_used"]),
+      apiPercentUsed: optionalNumber(planRecord, ["apiPercentUsed", "api_percent_used"]),
     },
     spendLimitUsage,
     displayMessage: typeof displayMessage === "string" ? displayMessage : null,
+    cursorModelsMessage: typeof cursorModelsMessage === "string" ? cursorModelsMessage : null,
+    otherModelsMessage: typeof otherModelsMessage === "string" ? otherModelsMessage : null,
   };
 }
 

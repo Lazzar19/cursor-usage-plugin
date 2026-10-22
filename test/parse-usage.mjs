@@ -45,6 +45,25 @@ assert(camel.planUsage.includedSpendCents === 23222, "camelCase included spend")
 assert(camel.billingCycleStartMs === 1768399334000, "cycle start from string millis");
 assert(camel.spendLimitUsage?.limitType === "user", "spend limit type");
 assert(camel.displayMessage?.includes("15%"), "display message");
+assert(camel.planUsage.autoPercentUsed === null, "missing Cursor model percent stays empty");
+assert(camel.planUsage.apiPercentUsed === null, "missing Other model percent stays empty");
+
+const split = parseCurrentPeriodUsage({
+  planUsage: {
+    totalSpend: 7222,
+    includedSpend: 2000,
+    limit: 2000,
+    totalPercentUsed: 15.6,
+    autoPercentUsed: 16.04,
+    apiPercentUsed: 0,
+  },
+  autoModelSelectedDisplayMessage: "You've used 16% of your included total usage",
+  namedModelSelectedDisplayMessage: "You've used 0% of your included API usage",
+});
+assert(split.planUsage.autoPercentUsed === 16.04, "Cursor models use autoPercentUsed");
+assert(split.planUsage.apiPercentUsed === 0, "Other models use apiPercentUsed and keep zero");
+assert(split.cursorModelsMessage.includes("16%"), "Cursor models message is kept");
+assert(split.otherModelsMessage.includes("API usage"), "Other models message is kept");
 
 const snake = parseCurrentPeriodUsage({
   billing_cycle_start: 10,

@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const { StateDbNotFoundError } = require("../out/auth.js");
-const { meterLevel, presentFailure, presentUsage } = require("../out/status.js");
+const { CURSOR_MODELS_COLOR, OTHER_MODELS_COLOR, meterLevel, presentFailure, presentUsage } = require("../out/status.js");
 const { UsageUnavailableError } = require("../out/usage.js");
 
 const TOKEN = "secret-session-token";
@@ -31,20 +31,41 @@ const usage = {
     remainingCents: 0,
     limitCents: 2000,
     totalPercentUsed: 12.7,
+    autoPercentUsed: 16,
+    apiPercentUsed: 0,
   },
   spendLimitUsage: null,
   displayMessage: "You've hit your usage limit",
+  cursorModelsMessage: "You've used 16% of your included total usage",
+  otherModelsMessage: "You've used 0% of your included API usage",
 };
 
 const view = presentUsage(usage, 8, 80, 95);
-assert(view.text === "$(pulse) Cursor ▓▓▓▓▓▓▓▓ 100%", "meter shows a full bar and 100%");
-assert(view.level === "critical", "100% is critical at the default 95% threshold");
+assert(view.text === "$(pulse) Cursor ▓░░░░░░░ 16% · Other ░░░░░░░░ 0%", "meter shows Cursor and Other model pools");
+assert(view.pools[0].color === CURSOR_MODELS_COLOR, "Cursor models use the blue meter");
+assert(view.pools[1].color === OTHER_MODELS_COLOR, "Other models use the amber meter");
+assert(view.pools[0].text.startsWith("$(pulse) Cursor "), "Cursor meter is its own status item");
+assert(view.pools[1].text.startsWith("Other "), "Other meter is its own status item");
+assert(view.level === "normal", "16% stays under the default warning threshold");
+assert(view.tooltip.includes("Cursor models 16%"), "hover shows the Cursor model percent");
+assert(view.tooltip.includes("Other models 0%"), "hover shows the Other model percent");
+assert(view.tooltip.includes("included API usage"), "hover shows the Other models message");
 assert(view.tooltip.includes("Included $20.00"), "hover shows included dollars");
 assert(view.tooltip.includes("Remaining $0.00"), "hover shows remaining dollars");
 assert(view.tooltip.includes("Limit $20.00"), "hover shows the limit");
 assert(view.tooltip.includes("Cycle 2026-10-11 – 2026-11-11"), "hover shows the billing cycle");
 assert(view.tooltip === view.output, "details output matches the hover text");
 assertNoSecret(view.output, "success output hides the session");
+
+const highCursor = presentUsage(
+  { ...usage, planUsage: { ...usage.planUsage, autoPercentUsed: 96, apiPercentUsed: 10 } },
+  8,
+  80,
+  95,
+);
+assert(highCursor.level === "critical", "Cursor model usage at 96% is critical");
+assert(highCursor.pools[0].level === "critical", "only the Cursor pool turns critical at 96%");
+assert(highCursor.pools[1].level === "normal", "Other stays normal at 10%");
 
 assert(meterLevel(50, 80, 95) === "normal", "50% stays normal at the default thresholds");
 assert(meterLevel(50, 40, 95) === "warning", "lowering the warning threshold below 50% warns");
@@ -68,7 +89,7 @@ assertNoSecret(leaked.output, "output drops a bearer token");
 const halfway = presentUsage(
   {
     ...usage,
-    planUsage: { ...usage.planUsage, includedSpendCents: 1000, remainingCents: 1000, limitCents: 2000 },
+    planUsage: { ...usage.planUsage, includedSpendCents: 1000, remainingCents: 1000, limitCents: 2000, autoPercentUsed: 50, apiPercentUsed: 0 },
     displayMessage: "You've used 50% of your usage limit",
   },
   8,
